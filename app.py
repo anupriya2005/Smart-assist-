@@ -119,3 +119,20 @@ if speech_text:
     components.html(tts_javascript, height=0)
 else:
     alert_placeholder.success("🟢 System Clear: No hazards immediate.")
+# Add this at the absolute bottom of app.py
+st.markdown("---")
+st.subheader("🔊 Audio Helper")
+
+# If an object was detected, create a button to force the browser to speak
+if st.session_state.get("text_to_speak", ""):
+    alert_msg = st.session_state["text_to_speak"]
+    
+    if st.button("📢 Click to Hear Audio Alert"):
+        tts_button_js = f"""
+        <script>
+            window.speechSynthesis.cancel();
+            var speech = new SpeechSynthesisUtterance("{alert_msg}");
+            window.speechSynthesis.speak(speech);
+        </script>
+        """
+        components.html(tts_button_js, height=0)
