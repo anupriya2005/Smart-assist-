@@ -5,11 +5,12 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 import streamlit.components.v1 as components
+import os
 
 # --- Page Setup ---
 st.set_page_config(page_title="Smart Assist AI Portal", layout="wide")
 st.title("👁️ Smart Assist: Environmental Awareness Dashboard")
-st.write("👉 *Click anywhere on the webpage or adjust the slider to activate browser audio permissions before starting the camera!*")
+st.write("👉 *Click anywhere on this text or adjust the slider to grant browser audio permissions before starting the camera!*")
 
 # --- Model Initialization ---
 @st.cache_resource
@@ -23,6 +24,9 @@ FOCUS_CLASSES = [
     'vehicle', 'plant', 'fence', 'garbage bin'
 ]
 
+# Temporary file path to pass alert data safely across threads
+ALERT_FILE = "latest_alert.txt"
+
 # --- Sidebar Configuration ---
 st.sidebar.header("System Calibration")
 conf_val = st.sidebar.slider("Detection Confidence", 0.1, 1.0, 0.25)
@@ -32,10 +36,7 @@ RTC_CONFIGURATION = RTCConfiguration(
     {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
 
-# A visible text box placeholder for live status updates
-alert_placeholder = st.empty()
-
-# --- Video Processing Engine ---
+# --- Video Processing Engine (Runs on Background Thread) ---
 def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
     img = frame.to_ndarray(format="bgr24")
     
@@ -48,6 +49,7 @@ def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
         l = clahe.apply(l)
         img = cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
 
+    # Read current slider value safely from session state
     current_conf = st.session_state.get("conf_threshold", 0.25)
     results = model(img, conf=current_conf, verbose=False)[0]
     h, w = img.shape[:2]
@@ -64,7 +66,6 @@ def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
             box_w, box_h = int(x2 - x1), int(y2 - y1)
             closeness = ((box_w * box_h) / (w * h)) * 100
             
-            # Keep track of the absolute closest object taking over the frame
             if closeness > 25 and closeness > max_closeness:
                 max_closeness = closeness
                 closest_object = name
@@ -76,11 +77,16 @@ def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
             cv2.putText(img, f"{name} {closeness:.1f}%", (int(x1), int(y1) - 10), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
-    # If an object is too close, dynamically inject browser-side speech via session attributes
+    # Write alert data to a file instead of updating session_state directly
     if closest_object:
-        st.session_state["text_to_speak"] = f"Warning! {closest_object} is very close."
+        with open(ALERT_FILE, "w") as f:
+            f.write(f"Warning! {closest_object} is very close.")
     else:
-        st.session_state["text_to_speak"] = ""
+        if os.path.exists(ALERT_FILE):
+            try:
+                os.remove(ALERT_FILE)
+            except:
+                pass
 
     return av.VideoFrame.from_ndarray(img, format="bgr24")
 
@@ -94,45 +100,36 @@ webrtc_streamer(
     async_processing=True,
 )
 
-# --- Browser Text-to-Speech Engine via JavaScript ---
-# Checking text state every frontend UI render cycle
-speech_text = st.session_state.get("text_to_speak", "")
+# --- Frontend Audio/UI Sync (Runs on Main Thread) ---
+# Read the file to see if the video thread flagged an alert
+speech_text = ""
+if os.path.exists(ALERT_FILE):
+    try:
+        with open(ALERT_FILE, "r") as f:
+            speech_text = f.read()
+    except:
+        pass
 
+# Display UI updates and trigger browser JavaScript audio safely
 if speech_text:
-    # Display warning layout bar
-    alert_placeholder.error(f"🔊 AI Audio Output: \"{speech_text}\"")
+    st.error(f"🔊 AI Audio Output Log: \"{speech_text}\"")
     
-    # JavaScript logic with safety timeout to avoid freezing your dashboard window
+    # JavaScript logic to execute text-to-speech right in the browser window
     tts_javascript = f"""
     <script>
         if ('speechSynthesis' in window) {{
-            // Cancel any ongoing speech so it doesn't backlog
-            window.speechSynthesis.cancel(); 
+            window.speechSynthesis.cancel(); // Prevent audio overlap queue
             var speech = new SpeechSynthesisUtterance("{speech_text}");
             speech.lang = 'en-US';
-            speech.rate = 1.0;
+            speech.rate = 1.1;
             window.speechSynthesis.speak(speech);
         }}
     </script>
     """
-    # Execute Javascript element invisibly in browser background
     components.html(tts_javascript, height=0)
-else:
-    alert_placeholder.success("🟢 System Clear: No hazards immediate.")
-# Add this at the absolute bottom of app.py
-st.markdown("---")
-st.subheader("🔊 Audio Helper")
-
-# If an object was detected, create a button to force the browser to speak
-if st.session_state.get("text_to_speak", ""):
-    alert_msg = st.session_state["text_to_speak"]
     
-    if st.button("📢 Click to Hear Audio Alert"):
-        tts_button_js = f"""
-        <script>
-            window.speechSynthesis.cancel();
-            var speech = new SpeechSynthesisUtterance("{alert_msg}");
-            window.speechSynthesis.speak(speech);
-        </script>
-        """
-        components.html(tts_button_js, height=0)
+    # Backup Click-to-Hear Button in case browser blocks the autoplay audio
+    if st.button("📢 Click here if you cannot hear the automatic voice alert"):
+        components.html(tts_javascript, height=0)
+else:
+    st.success("🟢 System Clear: No hazards immediate.")
