@@ -9,6 +9,7 @@ import streamlit.components.v1 as components
 # --- Page Setup ---
 st.set_page_config(page_title="Smart Assist AI Portal", layout="wide")
 st.title("👁️ Smart Assist: Environmental Awareness Dashboard")
+st.write("👉 *Click anywhere on the webpage or adjust the slider to activate browser audio permissions before starting the camera!*")
 
 # --- Model Initialization ---
 @st.cache_resource
@@ -31,9 +32,8 @@ RTC_CONFIGURATION = RTCConfiguration(
     {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
 
-# Initialize a session state variable to keep track of the last spoken alert
-if "audio_queue" not in st.session_state:
-    st.session_state["audio_queue"] = ""
+# A visible text box placeholder for live status updates
+alert_placeholder = st.empty()
 
 # --- Video Processing Engine ---
 def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
@@ -52,7 +52,8 @@ def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
     results = model(img, conf=current_conf, verbose=False)[0]
     h, w = img.shape[:2]
 
-    alert_triggered = False
+    closest_object = None
+    max_closeness = 0
 
     for r in results.boxes:
         c_id = int(r.cls[0])
@@ -63,19 +64,23 @@ def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
             box_w, box_h = int(x2 - x1), int(y2 - y1)
             closeness = ((box_w * box_h) / (w * h)) * 100
             
-            # Danger Close Alert (Object takes up more than 25% of the frame)
-            if closeness > 25:
-                color = (0, 0, 255) # Crimson Red
-                if not alert_triggered:
-                    # Update global string for audio payload
-                    st.session_state["audio_queue"] = f"Warning. {name} is very close."
-                    alert_triggered = True
+            # Keep track of the absolute closest object taking over the frame
+            if closeness > 25 and closeness > max_closeness:
+                max_closeness = closeness
+                closest_object = name
+                color = (0, 0, 255) # Red for danger-close
             else:
                 color = (0, 255, 0) # Green
             
             cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
             cv2.putText(img, f"{name} {closeness:.1f}%", (int(x1), int(y1) - 10), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+    # If an object is too close, dynamically inject browser-side speech via session attributes
+    if closest_object:
+        st.session_state["text_to_speak"] = f"Warning! {closest_object} is very close."
+    else:
+        st.session_state["text_to_speak"] = ""
 
     return av.VideoFrame.from_ndarray(img, format="bgr24")
 
@@ -89,22 +94,28 @@ webrtc_streamer(
     async_processing=True,
 )
 
-# --- Browser-Native Text-to-Speech Engine (JavaScript Injection) ---
-if st.session_state["audio_queue"] != "":
-    text_to_speak = st.session_state["audio_queue"]
+# --- Browser Text-to-Speech Engine via JavaScript ---
+# Checking text state every frontend UI render cycle
+speech_text = st.session_state.get("text_to_speak", "")
+
+if speech_text:
+    # Display warning layout bar
+    alert_placeholder.error(f"🔊 AI Audio Output: \"{speech_text}\"")
     
-    # Inject JavaScript that calls the browser's speech synthesis engine
-    tts_html = f"""
+    # JavaScript logic with safety timeout to avoid freezing your dashboard window
+    tts_javascript = f"""
     <script>
-        var msg = new SpeechSynthesisUtterance('{text_to_speak}');
-        window.speechSynthesis.speak(msg);
+        if ('speechSynthesis' in window) {{
+            // Cancel any ongoing speech so it doesn't backlog
+            window.speechSynthesis.cancel(); 
+            var speech = new SpeechSynthesisUtterance("{speech_text}");
+            speech.lang = 'en-US';
+            speech.rate = 1.0;
+            window.speechSynthesis.speak(speech);
+        }}
     </script>
     """
-    # Execute the component invisibly in the layout background
-    components.html(tts_html, height=0, width=0)
-    
-    # Show text log for judges
-    st.warning(f"🔊 Audio Output: \"{text_to_speak}\"")
-    
-    # Reset queue so it doesn't repeat infinitely
-    st.session_state["audio_queue"] = ""
+    # Execute Javascript element invisibly in browser background
+    components.html(tts_javascript, height=0)
+else:
+    alert_placeholder.success("🟢 System Clear: No hazards immediate.")
