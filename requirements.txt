@@ -2,7 +2,6 @@ ultralytics
 supervision
 opencv-python-headless
 numpy
-pyttsx3
 streamlit
 streamlit-webrtc
 av
