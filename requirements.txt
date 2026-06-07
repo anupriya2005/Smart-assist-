@@ -1,6 +1,1 @@
-streamlit
-ultralytics
-easyocr
-gTTS
-opencv-python-headless
-numpy
+flask
