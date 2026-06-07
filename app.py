@@ -1,187 +1,136 @@
-import streamlit as st
+import os
+import base64
 import cv2
 import numpy as np
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
 from ultralytics import YOLO
+import easyocr
 from gtts import gTTS
-import av
-import time
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 
-# Set up widescreen configuration matching your original user interface template
-st.set_page_config(
-    page_title="Smart Assist Dashboard",
-    page_icon="👁️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+app = Flask(__name__)
+CORS(app)  # Enable Cross-Origin Resource Sharing for frontend communication
 
-# -------------------------------------------------------------------------
-# SIDEBAR: System Calibration (Restored from your dashboard UI layout)
-# -------------------------------------------------------------------------
-st.sidebar.title("🔧 System Calibration")
+# Create a directory to temporarily store generated audio responses
+AUDIO_DIR = os.path.join(os.path.dirname(__file__), 'static', 'audio')
+os.makedirs(AUDIO_DIR, exist_ok=True)
 
-# Sliders calibrated to match your precise user parameters
-confidence_threshold = st.sidebar.slider(
-    "Detection Confidence", 
-    min_value=0.0, max_value=1.0, value=0.25, step=0.05
-)
+# -------------------------------------------------------------
+# Initialize AI Models
+# -------------------------------------------------------------
+print("Loading YOLOv8 model...")
+model = YOLO('yolov8n.pt')  # Using the nano model for fast, real-time CPU performance
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("💡 Viva Presentation Tip")
-st.sidebar.markdown("""
-* **CLAHE Enhancement:** Applied dynamically below a mean brightness of 80 to ensure spatial clarity in low-light environments.
-* **Proximity Metric:** Bounding box pixel density percentage relative to the canvas calculation determines hazard severity.
-""")
+print("Loading EasyOCR Reader...")
+reader = easyocr.Reader(['en'], gpu=False)  # Set gpu=True if you have a CUDA setup
 
-# -------------------------------------------------------------------------
-# RESOURCE CACHING: Optimized YOLO Model Load
-# -------------------------------------------------------------------------
-@st.cache_resource
-def load_models():
+
+# -------------------------------------------------------------
+# Helper Functions
+# -------------------------------------------------------------
+def decode_image(base64_string):
+    """Decodes a base64 string sent by the frontend camera into an OpenCV image."""
+    encoded_data = base64_string.split(',')[1]
+    nparr = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    return img
+
+def generate_tts(text, filename="response.mp3"):
+    """Converts text instructions into an MP3 file."""
+    tts = gTTS(text=text, lang='en')
+    filepath = os.path.join(AUDIO_DIR, filename)
+    tts.save(filepath)
+    return f"/static/audio/{filename}"
+
+
+# -------------------------------------------------------------
+# API Endpoints
+# -------------------------------------------------------------
+@app.route('/')
+def home():
+    return "Smart Assist AI Backend Running."
+
+@app.route('/static/audio/<path:filename>')
+def serve_audio(filename):
+    """Serves the generated speech MP3 files to the frontend."""
+    return send_from_directory(AUDIO_DIR, filename)
+
+@app.route('/api/detect-objects', methods=['POST'])
+def detect_objects():
+    """Analyzes a camera frame to identify common objects and obstacles."""
     try:
-        # Load standard lightweight models to run efficiently on low-compute containers
-        return YOLO("yolov8n.pt")
+        data = request.get_json()
+        if not data or 'image' not in data:
+            return jsonify({"error": "Missing image data"}), 400
+        
+        img = decode_image(data['image'])
+        results = model(img, verbose=False)
+        
+        # Parse names of detected unique items
+        detected_items = []
+        for r in results:
+            for c in r.boxes.cls:
+                detected_items.append(model.names[int(c)])
+        
+        if detected_items:
+            # Group identical items (e.g., "two chairs, one person")
+            unique_items = set(detected_items)
+            summary_list = [f"{detected_items.count(item)} {item}{'s' if detected_items.count(item) > 1 else ''}" for item in unique_items]
+            response_text = "In front of you, I see: " + ", ".join(summary_list) + "."
+        else:
+            response_text = "The path ahead looks clear."
+            
+        audio_url = generate_tts(response_text, "detect.mp3")
+        
+        return jsonify({
+            "text": response_text,
+            "audio_url": audio_url
+        })
+        
     except Exception as e:
-        st.sidebar.error(f"Error loading models: {e}")
-        return None
+        return jsonify({"error": str(e)}), 500
 
-model_gen = load_models()
+@app.route('/api/read-text', methods=['POST'])
+def read_text():
+    """Extracts text signs, labels, or document words via OCR."""
+    try:
+        data = request.get_json()
+        if not data or 'image' not in data:
+            return jsonify({"error": "Missing image data"}), 400
+            
+        img = decode_image(data['image'])
+        
+        # Perform OCR text extraction
+        ocr_result = reader.readtext(img, detail=0)
+        
+        if ocr_result:
+            extracted_text = " ".join(ocr_result)
+            response_text = f"The text reads: {extracted_text}"
+        else:
+            response_text = "No clear text could be detected in frame."
+            
+        audio_url = generate_tts(response_text, "ocr.mp3")
+        
+        return jsonify({
+            "text": response_text,
+            "audio_url": audio_url
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-# -------------------------------------------------------------------------
-# AUDIO INTERFACE: Browser Audio Output Module
-# -------------------------------------------------------------------------
-def speak_text_in_browser(text_payload):
-    """Generates an MP3 token and fires it directly via browser speakers."""
-    if text_payload:
-        try:
-            tts = gTTS(text=text_payload, lang='en', tld='com')
-            audio_path = "temp_alert.mp3"
-            tts.save(audio_path)
-            st.audio(audio_path, format="audio/mp3", autoplay=True)
-        except Exception as e:
-            pass
-
-# -------------------------------------------------------------------------
-# MAIN INTERFACE: Dynamic Layout Design
-# -------------------------------------------------------------------------
-st.title("👁️ Smart Assist: Environmental Awareness Portal")
-st.caption("Development Stage: Local Hardware Prototype Interface")
-
-# Main central application checkbox toggle from your original template screenshot
-launch_engine = st.checkbox("Launch Smart Assist Webcam Engine", value=False)
-
-if launch_engine:
-    st.info("🎥 Stream active. Please ensure you allow your web browser camera permissions.")
+@app.route('/api/sos', methods=['POST'])
+def trigger_sos():
+    """Triggers mock emergency protocol and vocalizes confirmation."""
+    # Note: In a production environment, you would call the Twilio or WhatsApp API here.
+    emergency_msg = "Emergency protocol activated. Your location coordinates have been transmitted to your guardian."
+    audio_url = generate_tts(emergency_msg, "sos.mp3")
     
-    # Setup interface split columns for video feed vs text logs
-    col1, col2 = col1, col2 = st.columns([2, 1])
-    
-    with col2:
-        st.subheader("🔊 Audio Alerts Queue")
-        status_box = st.empty()
-        status_box.success("System Live: Scanning pathways...")
-        metrics_placeholder = st.empty()
-        alert_placeholder = st.empty()
+    return jsonify({
+        "text": emergency_msg,
+        "audio_url": audio_url
+    })
 
-    # Define the video callback engine that operates safely in asynchronous cloud threads
-    class VideoProcessor(VideoProcessorBase):
-        def __init__(self):
-            self.low_light_announced = False
-            self.last_alert_time = 0
-            self.last_blur_time = 0
-
-        def recv(self, frame):
-            img = frame.to_ndarray(format="bgr24")
-            img_h, img_w = img.shape[:2]
-            current_time = time.time()
-            
-            # --- 1. Camera Focus/Sharpness Assessment ---
-            focus_measure = cv2.Laplacian(img, cv2.CV_64F).var()
-            camera_is_blur = focus_measure < 60.0
-            
-            # --- 2. Brightness Assessment & CLAHE ---
-            avg_color = np.mean(img, axis=(0, 1))
-            brightness = np.mean(avg_color)
-            is_dark = brightness < 80
-            
-            processing_image = img.copy()
-            
-            if is_dark:
-                lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-                l, a, b = cv2.split(lab)
-                clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-                l = clahe.apply(l)
-                processing_image = cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
-            
-            # --- 3. Object Detection Inference Pipeline ---
-            alert_parts = []
-            trigger_beep = False
-            
-            if model_gen is not None:
-                results = model_gen(processing_image, conf=confidence_threshold, verbose=False)[0]
-                
-                for box in results.boxes:
-                    x1, y1, x2, y2 = box.xyxy[0].tolist()
-                    class_id = int(box.cls[0])
-                    class_name = model_gen.names[class_id]
-                    confidence = float(box.conf[0])
-                    
-                    # --- 4. Distance Calculation via Box Area Metric ---
-                    norm_area = ((x2 - x1) * (y2 - y1)) / (img_w * img_h)
-                    dist_label = "far"
-                    box_color = (0, 255, 0) # Green for normal tracking
-                    
-                    if norm_area > 0.25:
-                        dist_label = "very close"
-                        trigger_beep = True
-                        box_color = (0, 0, 255) # Red bounding frames for close objects
-                    elif norm_area > 0.08:
-                        dist_label = "near"
-                        box_color = (0, 165, 255) # Orange for medium indicators
-                    
-                    # --- 5. Direction Identification Calculus ---
-                    center_x = (x1 + x2) / 2 / img_w
-                    if center_x < 0.35:
-                        dir_label = "to the left"
-                    elif center_x > 0.65:
-                        dir_label = "to the right"
-                    else:
-                        dir_label = "in front"
-                    
-                    alert_parts.append(f"{class_name} {dist_label} {dir_label}")
-                    
-                    # --- 6. Visualization Overlays ---
-                    cv2.rectangle(processing_image, (int(x1), int(y1)), (int(x2), int(y2)), box_color, 2)
-                    cv2.putText(processing_image, f"{class_name} {dist_label}", (int(x1), int(y1) - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 2)
-
-            # Send spatial state parameters to the display log variables
-            metrics_placeholder.markdown(f"""
-            **Diagnostics Logs:**
-            * Sharpness Metric: `{focus_measure:.2f}` (Blur Limit: 60.0)
-            * Ambient Luminosity: `{brightness:.2f}`
-            """)
-            
-            if len(alert_parts) > 0:
-                alert_placeholder.warning(f"Detected: {', '.join(alert_parts)}")
-            else:
-                alert_placeholder.info("Scanning... Pathway clear.")
-
-            return av.VideoFrame.from_ndarray(processing_image, format="bgr24")
-
-    with col1:
-        # Deploy cloud-safe real-time WebRTC media streamer
-        ctx = webrtc_streamer(
-            key="smart-assist-streamer",
-            video_processor_factory=VideoProcessor,
-            rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
-            media_stream_constraints={"video": True, "audio": False}
-        )
-
-else:
-    # Restored your precise original layout instruction banner text from your image
-    st.markdown("""
-    <div style="background-color:#1e293b; padding:20px; border-radius:8px; border-left: 5px solid #3b82f6;">
-        <span style="color:#94a3b8;">System Standby. Toggle the engine checkbox to boot up the vision tracking matrix.</span>
-    </div>
-    """, unsafe_allowed_html=True)
+if __name__ == '__main__':
+    # Flask application runs on port 5000
+    app.run(host='0.0.0.0', port=5000, debug=True)
