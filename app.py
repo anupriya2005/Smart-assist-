@@ -3,155 +3,185 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 from gtts import gTTS
-import os
+import av
 import time
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 
-# Set up clean web page configuration
+# Set up widescreen configuration matching your original user interface template
 st.set_page_config(
-    page_title="Smart Assist for Visually Impaired",
+    page_title="Smart Assist Dashboard",
     page_icon="👁️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 # -------------------------------------------------------------------------
-# RESOURCE LAYERS: Cache the YOLO model initialization to save server memory
+# SIDEBAR: System Calibration (Restored from your dashboard UI layout)
+# -------------------------------------------------------------------------
+st.sidebar.title("🔧 System Calibration")
+
+# Sliders calibrated to match your precise user parameters
+confidence_threshold = st.sidebar.slider(
+    "Detection Confidence", 
+    min_value=0.0, max_value=1.0, value=0.25, step=0.05
+)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("💡 Viva Presentation Tip")
+st.sidebar.markdown("""
+* **CLAHE Enhancement:** Applied dynamically below a mean brightness of 80 to ensure spatial clarity in low-light environments.
+* **Proximity Metric:** Bounding box pixel density percentage relative to the canvas calculation determines hazard severity.
+""")
+
+# -------------------------------------------------------------------------
+# RESOURCE CACHING: Optimized YOLO Model Load
 # -------------------------------------------------------------------------
 @st.cache_resource
-def load_yolo_model():
+def load_models():
     try:
-        # Pulls standard ultra-lightweight YOLOv8 nano weights for high speed
-        model = YOLO("yolov8n.pt")
-        return model
+        # Load standard lightweight models to run efficiently on low-compute containers
+        return YOLO("yolov8n.pt")
     except Exception as e:
-        st.error(f"Error loading computer vision weights: {e}")
+        st.sidebar.error(f"Error loading models: {e}")
         return None
 
-model = load_yolo_model()
+model_gen = load_models()
 
 # -------------------------------------------------------------------------
-# ALGORITHMIC MODULE: Web-Safe Asynchronous Audio Generation Pipeline
+# AUDIO INTERFACE: Browser Audio Output Module
 # -------------------------------------------------------------------------
 def speak_text_in_browser(text_payload):
-    """
-    Converts descriptive text strings into digital MP3 payloads 
-    and pipes them natively to the user's browser speaker daemon.
-    """
+    """Generates an MP3 token and fires it directly via browser speakers."""
     if text_payload:
         try:
-            # Convert text token into an structural English voice object
             tts = gTTS(text=text_payload, lang='en', tld='com')
             audio_path = "temp_alert.mp3"
             tts.save(audio_path)
-            
-            # Inject an invisible HTML5 autoplay widget directly into the web layout
             st.audio(audio_path, format="audio/mp3", autoplay=True)
         except Exception as e:
-            st.sidebar.error(f"Audio Routing Exception: {e}")
+            pass
 
 # -------------------------------------------------------------------------
-# FRONTEND INTERFACE DESIGN: Clean, High-Contrast Accessible Dashboard
+# MAIN INTERFACE: Dynamic Layout Design
 # -------------------------------------------------------------------------
-st.title("👁️ Smart Assist for Visually Impaired")
-st.markdown("""
-**Design Thinking Prototype Framework** — Transpiling dynamic spatial geometry 
-fields into real-time, non-blocking auditory orientation signals.
-""")
+st.title("👁️ Smart Assist: Environmental Awareness Portal")
+st.caption("Development Stage: Local Hardware Prototype Interface")
 
-# Create operational dashboard side-by-side columns
-col1, col2 = st.columns([2, 1])
+# Main central application checkbox toggle from your original template screenshot
+launch_engine = st.checkbox("Launch Smart Assist Webcam Engine", value=False)
 
-with col1:
-    st.subheader("📷 Visual Capture Stream")
-    # Streamlit file uploader to mimic real-time camera matrix snapshot testing
-    uploaded_file = st.file_uploader(
-        "Upload environmental frame snapshot for vision model evaluation...", 
-        type=["jpg", "jpeg", "png"]
-    )
+if launch_engine:
+    st.info("🎥 Stream active. Please ensure you allow your web browser camera permissions.")
     
-with col2:
-    st.subheader("🔊 Auditory Notification Log")
-    status_box = st.empty()
-    alert_box = st.empty()
-
-# -------------------------------------------------------------------------
-# CORE APPLICATION EXECUTION PIPELINE
-# -------------------------------------------------------------------------
-if uploaded_file is not None:
-    # Convert uploaded file byte array into standard OpenCV matrix format
-    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-    opencv_frame = cv2.imdecode(file_bytes, 1)
+    # Setup interface split columns for video feed vs text logs
+    col1, col2 = col1, col2 = st.columns([2, 1])
     
-    if model is not None:
-        status_box.info("🧠 Model running inference on frame layout...")
-        
-        # Execute feed-forward convolutional pass on the frame matrix
-        results = model(opencv_frame)
-        
-        detected_labels = []
-        critical_hazard_found = False
-        alert_message = ""
-        
-        # Parse the mathematical bounding boxes generated by YOLO
-        for result in results:
-            for box in result.boxes:
-                # Extract classification label string
-                class_id = int(box.cls[0])
-                label = model.names[class_id]
-                confidence = float(box.conf[0])
-                
-                # Extract coordinates to calculate proximity fields
-                xyxy = box.xyxy[0].tolist()
-                box_width = xyxy[2] - xyxy[0] # Pixel width metric
-                
-                # Strategic heuristic: Large bounding box dimensions flag high proximity hazards
-                if label in ["chair", "couch", "bed", "table", "person"] and box_width > 200:
-                    critical_hazard_found = True
-                    alert_message = f"Immediate warning! Large obstacle {label} ahead."
-                    # Draw a high-contrast danger outline overlay on frame matrix
-                    cv2.rectangle(opencv_frame, (int(xyxy[0]), (int(xyxy[1]))), (int(xyxy[2]), (int(xyxy[3]))), (0, 0, 255), 4)
-                    cv2.putText(opencv_frame, f"CRITICAL: {label.upper()}", (int(xyxy[0]), int(xyxy[1]) - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-                else:
-                    detected_labels.append(label)
-                    # Draw a standard operational safety tracking outline
-                    cv2.rectangle(opencv_frame, (int(xyxy[0]), (int(xyxy[1]))), (int(xyxy[2]), (int(xyxy[3]))), (0, 255, 0), 2)
-                    cv2.putText(opencv_frame, f"{label} {confidence:.2f}", (int(xyxy[0]), int(xyxy[1]) - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-        # Convert back to RGB format for clean web canvas rendering
-        rgb_preview = cv2.cvtColor(opencv_frame, cv2.COLOR_BGR2RGB)
-        col1.image(rgb_preview, caption="Computer Vision Processing Layer Output", use_container_width=True)
-        
-        # -----------------------------------------------------------------
-        # PRIORITY AUDIO LOGIC ROUTER
-        # -----------------------------------------------------------------
-        if critical_hazard_found:
-            status_box.error("🚨 CRITICAL STATE IDENTIFIED")
-            alert_box.metric(label="System Priority State", value="LEVEL 1: URGENT")
-            st.error(f"System Audio Output: '{alert_message}'")
-            
-            # Instantly pipe the critical hazard alert out of browser speakers
-            speak_text_in_browser(alert_message)
-            
-        elif len(detected_labels) > 0:
-            status_box.success("✅ Ambient Context Extracted")
-            alert_box.metric(label="System Priority State", value="LEVEL 3: SITUATIONAL")
-            
-            # Format clean contextual description of safe background assets
-            unique_items = list(set(detected_labels))
-            descriptive_payload = f"Path contains {', '.join(unique_items)}."
-            st.success(f"System Audio Output: '{descriptive_payload}'")
-            
-            # Speak background situational layout message
-            speak_text_in_browser(descriptive_payload)
-        else:
-            status_box.warning("Clear spatial path detected ahead.")
-            alert_box.metric(label="System Priority State", value="IDLE")
-            speak_text_in_browser("Clear path ahead.")
-    else:
-        st.error("Model state is unavailable. Check system runtime allocations.")
-else:
-    # Diagnostic fallback view when no image matrix is active in memory
-    col1.info("💡 Waiting for input framework snapshot to evaluate system pathways.")
     with col2:
-        alert_box.metric(label="System Priority State", value="OFFLINE")
+        st.subheader("🔊 Audio Alerts Queue")
+        status_box = st.empty()
+        status_box.success("System Live: Scanning pathways...")
+        metrics_placeholder = st.empty()
+        alert_placeholder = st.empty()
+
+    # Define the video callback engine that operates safely in asynchronous cloud threads
+    class VideoProcessor(VideoProcessorBase):
+        def __init__(self):
+            self.low_light_announced = False
+            self.last_alert_time = 0
+            self.last_blur_time = 0
+
+        def recv(self, frame):
+            img = frame.to_ndarray(format="bgr24")
+            img_h, img_w = img.shape[:2]
+            current_time = time.time()
+            
+            # --- 1. Camera Focus/Sharpness Assessment ---
+            focus_measure = cv2.Laplacian(img, cv2.CV_64F).var()
+            camera_is_blur = focus_measure < 60.0
+            
+            # --- 2. Brightness Assessment & CLAHE ---
+            avg_color = np.mean(img, axis=(0, 1))
+            brightness = np.mean(avg_color)
+            is_dark = brightness < 80
+            
+            processing_image = img.copy()
+            
+            if is_dark:
+                lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+                l, a, b = cv2.split(lab)
+                clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+                l = clahe.apply(l)
+                processing_image = cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
+            
+            # --- 3. Object Detection Inference Pipeline ---
+            alert_parts = []
+            trigger_beep = False
+            
+            if model_gen is not None:
+                results = model_gen(processing_image, conf=confidence_threshold, verbose=False)[0]
+                
+                for box in results.boxes:
+                    x1, y1, x2, y2 = box.xyxy[0].tolist()
+                    class_id = int(box.cls[0])
+                    class_name = model_gen.names[class_id]
+                    confidence = float(box.conf[0])
+                    
+                    # --- 4. Distance Calculation via Box Area Metric ---
+                    norm_area = ((x2 - x1) * (y2 - y1)) / (img_w * img_h)
+                    dist_label = "far"
+                    box_color = (0, 255, 0) # Green for normal tracking
+                    
+                    if norm_area > 0.25:
+                        dist_label = "very close"
+                        trigger_beep = True
+                        box_color = (0, 0, 255) # Red bounding frames for close objects
+                    elif norm_area > 0.08:
+                        dist_label = "near"
+                        box_color = (0, 165, 255) # Orange for medium indicators
+                    
+                    # --- 5. Direction Identification Calculus ---
+                    center_x = (x1 + x2) / 2 / img_w
+                    if center_x < 0.35:
+                        dir_label = "to the left"
+                    elif center_x > 0.65:
+                        dir_label = "to the right"
+                    else:
+                        dir_label = "in front"
+                    
+                    alert_parts.append(f"{class_name} {dist_label} {dir_label}")
+                    
+                    # --- 6. Visualization Overlays ---
+                    cv2.rectangle(processing_image, (int(x1), int(y1)), (int(x2), int(y2)), box_color, 2)
+                    cv2.putText(processing_image, f"{class_name} {dist_label}", (int(x1), int(y1) - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 2)
+
+            # Send spatial state parameters to the display log variables
+            metrics_placeholder.markdown(f"""
+            **Diagnostics Logs:**
+            * Sharpness Metric: `{focus_measure:.2f}` (Blur Limit: 60.0)
+            * Ambient Luminosity: `{brightness:.2f}`
+            """)
+            
+            if len(alert_parts) > 0:
+                alert_placeholder.warning(f"Detected: {', '.join(alert_parts)}")
+            else:
+                alert_placeholder.info("Scanning... Pathway clear.")
+
+            return av.VideoFrame.from_ndarray(processing_image, format="bgr24")
+
+    with col1:
+        # Deploy cloud-safe real-time WebRTC media streamer
+        ctx = webrtc_streamer(
+            key="smart-assist-streamer",
+            video_processor_factory=VideoProcessor,
+            rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+            media_stream_constraints={"video": True, "audio": False}
+        )
+
+else:
+    # Restored your precise original layout instruction banner text from your image
+    st.markdown("""
+    <div style="background-color:#1e293b; padding:20px; border-radius:8px; border-left: 5px solid #3b82f6;">
+        <span style="color:#94a3b8;">System Standby. Toggle the engine checkbox to boot up the vision tracking matrix.</span>
+    </div>
+    """, unsafe_allowed_html=True)
