@@ -11,9 +11,9 @@ ACCESSIBLE_UI_HTML = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SMART ASSIST - Ultimate Accessibility Companion</title>
     
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/@tensorflow-models/coco-ssd"></script>
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="https://unpkg.com/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+    <script src="https://unpkg.com/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+    <script src="https://unpkg.com/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
     
     <style>
         :root { --bg-color: #000000; --text-color: #FFFFFF; --accent-color: #FFFF00; --danger-color: #FF3333; --safe-color: #00FF00; }
@@ -57,16 +57,28 @@ ACCESSIBLE_UI_HTML = """
 
         async function initSystem() {
             try {
-                if (typeof cocoSsd === 'undefined') {
-                    throw new Error("TensorFlow Model library could not be downloaded. Check internet or HTTPS link.");
-                }
-                objectModel = await cocoSsd.load();
-                statusConsole.innerText = "System Fully Armed. Ready for input.";
-                speak("Smart Assist models loaded.");
+                // Fail-safe check for Global Model availability
+                let checkInterval = setInterval(async () => {
+                    if (typeof cocoSsd !== 'undefined' && typeof tf !== 'undefined') {
+                        clearInterval(checkInterval);
+                        objectModel = await cocoSsd.load();
+                        statusConsole.innerText = "System Fully Armed. Ready for input.";
+                        speak("Smart Assist models loaded.");
+                    }
+                }, 500);
+                
+                // Safety timeout if network fails entirely
+                setTimeout(() => {
+                    if(!objectModel) {
+                        clearInterval(checkInterval);
+                        statusConsole.style.borderColor = "#FF3333";
+                        statusConsole.innerText = "CONNECTION TIMEOUT: Ensure you are using an HTTPS:// address.";
+                    }
+                }, 10000);
+
             } catch (err) { 
                 statusConsole.style.borderColor = "#FF3333";
-                statusConsole.innerText = "CRITICAL ERROR: AI Libraries blocked from loading. Please use HTTPS:// link."; 
-                console.error(err);
+                statusConsole.innerText = "CRITICAL ERROR: AI Assets blocked."; 
             }
         }
 
@@ -98,7 +110,7 @@ ACCESSIBLE_UI_HTML = """
                 video.srcObject = stream;
             } catch (err) { 
                 statusConsole.style.borderColor = "#FF3333";
-                statusConsole.innerText = "CAMERA BLOCKED: Go to browser settings and allow camera access for this site."; 
+                statusConsole.innerText = "CAMERA BLOCKED: Please grant browser camera accessibility permission."; 
                 speak("Camera blocked.");
             }
         }
@@ -124,15 +136,13 @@ ACCESSIBLE_UI_HTML = """
                     videoBox.style.borderColor = "#FFFFFF"; statusConsole.style.borderColor = "#00FF00";
                     statusConsole.innerText = predictions.length > 0 ? `Visible: ${predictions.map(p=>p.class).join(', ')}` : "Scanning... Path clear.";
                 }
-            } catch(e) {
-                statusConsole.innerText = "Error running detection loop frame analysis.";
-            }
+            } catch(e) {}
             animationFrameId = requestAnimationFrame(runObjectDetectionLoop);
         }
 
         function toggleObjectScanner() {
             if (!objectModel) {
-                speak("System core not loaded yet.");
+                speak("System core is still processing initialization.");
                 return;
             }
             if (!isScanningObjects) { isScanningObjects = true; document.getElementById('btn-object').style.backgroundColor = "var(--danger-color)"; speak("Scanning engaged."); runObjectDetectionLoop(); }
@@ -145,7 +155,7 @@ ACCESSIBLE_UI_HTML = """
             const ctx = ocrCanvas.getContext('2d'); ctx.drawImage(video, 0, 0, ocrCanvas.width, ocrCanvas.height);
             try {
                 const result = await Tesseract.recognize(ocrCanvas, 'eng'); const cleanText = result.data.text.trim();
-                if (cleanText.length > 0) { statusConsole.innerText = `Read: "${cleanText}"`; speak(`The document reads: ${cleanText}`); }
+                if (cleanText.length > 0) { statusConsole.innerText = `Read: "${cleanText}"`; speak(`The text reads: ${cleanText}`); }
                 else { statusConsole.innerText = "No text parsed."; speak("No text detected."); }
             } catch (err) { speak("Text processing failure."); }
         }
