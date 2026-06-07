@@ -57,7 +57,6 @@ ACCESSIBLE_UI_HTML = """
 
         async function initSystem() {
             try {
-                // Fail-safe check for Global Model availability
                 let checkInterval = setInterval(async () => {
                     if (typeof cocoSsd !== 'undefined' && typeof tf !== 'undefined') {
                         clearInterval(checkInterval);
@@ -66,18 +65,7 @@ ACCESSIBLE_UI_HTML = """
                         speak("Smart Assist models loaded.");
                     }
                 }, 500);
-                
-                // Safety timeout if network fails entirely
-                setTimeout(() => {
-                    if(!objectModel) {
-                        clearInterval(checkInterval);
-                        statusConsole.style.borderColor = "#FF3333";
-                        statusConsole.innerText = "CONNECTION TIMEOUT: Ensure you are using an HTTPS:// address.";
-                    }
-                }, 10000);
-
             } catch (err) { 
-                statusConsole.style.borderColor = "#FF3333";
                 statusConsole.innerText = "CRITICAL ERROR: AI Assets blocked."; 
             }
         }
@@ -104,14 +92,11 @@ ACCESSIBLE_UI_HTML = """
 
         async function startCamera() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
+                video.srcObject = await navigator.mediaDevices.getUserMedia({ 
                     video: { width: 640, height: 480, facingMode: "environment" } 
                 });
-                video.srcObject = stream;
             } catch (err) { 
-                statusConsole.style.borderColor = "#FF3333";
-                statusConsole.innerText = "CAMERA BLOCKED: Please grant browser camera accessibility permission."; 
-                speak("Camera blocked.");
+                statusConsole.innerText = "CAMERA BLOCKED: Check permissions."; 
             }
         }
 
@@ -141,10 +126,7 @@ ACCESSIBLE_UI_HTML = """
         }
 
         function toggleObjectScanner() {
-            if (!objectModel) {
-                speak("System core is still processing initialization.");
-                return;
-            }
+            if (!objectModel) return;
             if (!isScanningObjects) { isScanningObjects = true; document.getElementById('btn-object').style.backgroundColor = "var(--danger-color)"; speak("Scanning engaged."); runObjectDetectionLoop(); }
             else { isScanningObjects = false; document.getElementById('btn-object').style.backgroundColor = "#222"; videoBox.style.borderColor = "#FFFFFF"; statusConsole.style.borderColor = "#FFFF00"; statusConsole.innerText = "Scanner off."; speak("Scanning disengaged."); if (animationFrameId) cancelAnimationFrame(animationFrameId); }
         }
@@ -160,18 +142,71 @@ ACCESSIBLE_UI_HTML = """
             } catch (err) { speak("Text processing failure."); }
         }
 
+        // 🌟 REWRITTEN VOOSE ASSISTANT LOGIC WITH DYNAMIC STATUS LOGGING
         function runVoiceAssistant() {
             const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!Speech) { speak("Voice recognition unsupported on this browser. Try Chrome."); return; }
-            const rec = new Speech(); rec.lang = 'en-US';
-            statusConsole.innerText = "Listening..."; speak("How can I help you?");
+            if (!Speech) { 
+                statusConsole.innerText = "VOICE ERROR: Browser compatibility block."; 
+                speak("Voice recognition unsupported."); 
+                return; 
+            }
+            
+            // Halt any scanning loops to clear microphone access lanes
+            if (isScanningObjects) toggleObjectScanner();
+
+            const rec = new Speech();
+            rec.lang = 'en-US';
+            rec.continuous = false;
+            rec.interimResults = false;
+
+            statusConsole.innerText = "🎙️ Listening for command now... Speak clear."; 
+            speak("How can I help you?");
+
+            // Automatically start capturing audio AFTER the Text-To-Speech finishes talking
+            setTimeout(() => {
+                try {
+                    rec.start();
+                } catch(e) {
+                    statusConsole.innerText = "Voice system already active. Retry.";
+                }
+            }, 1200);
+
+            rec.onstart = function() {
+                statusConsole.innerText = "🎙️ MICROPHONE LIVE: Say 'Scan', 'Read', or 'SOS'...";
+                statusConsole.style.borderColor = "var(--safe-color)";
+            };
+
             rec.onresult = function(e) {
-                const phrase = e.results[0][0].transcript.toLowerCase();
-                statusConsole.innerText = `Heard: "${phrase}"`;
-                if (phrase.includes("object") || phrase.includes("scan") || phrase.includes("see")) toggleObjectScanner();
-                else if (phrase.includes("read") || phrase.includes("text")) runTextReading();
-                else if (phrase.includes("help") || phrase.includes("emergency")) triggerEmergencySOS();
-                else { speak("Unknown command."); }
+                const phrase = e.results[0][0].transcript.toLowerCase().trim();
+                statusConsole.innerText = `🎯 PROCESSED VOICE: "${phrase.toUpperCase()}"`;
+                
+                // Flexible routing keyword conditions
+                if (phrase.includes("object") || phrase.includes("scan") || phrase.includes("see") || phrase.includes("camera")) {
+                    setTimeout(() => { toggleObjectScanner(); }, 800);
+                } else if (phrase.includes("read") || phrase.includes("text") || phrase.includes("book") || phrase.includes("word")) {
+                    setTimeout(() => { runTextReading(); }, 800);
+                } else if (phrase.includes("help") || phrase.includes("emergency") || phrase.includes("sos") || phrase.includes("danger")) {
+                    setTimeout(() => { triggerEmergencySOS(); }, 800);
+                } else {
+                    speak("Unknown command phrase. Try saying scan or read.");
+                }
+            };
+
+            rec.onerror = function(event) {
+                statusConsole.style.borderColor = "var(--accent-color)";
+                if (event.error === 'not-allowed') {
+                    statusConsole.innerText = "❌ VOICE ERROR: Microphone permission blocked by browser.";
+                    speak("Microphone permission denied.");
+                } else if (event.error === 'no-speech') {
+                    statusConsole.innerText = "❌ VOICE ERROR: No voice detected. Please try again.";
+                    speak("No audio heard.");
+                } else {
+                    statusConsole.innerText = `❌ VOICE ERROR: ${event.error}`;
+                }
+            };
+
+            rec.onend = function() {
+                statusConsole.style.borderColor = "var(--accent-color)";
             };
         }
 
