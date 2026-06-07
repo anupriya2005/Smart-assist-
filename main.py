@@ -11,7 +11,6 @@ st.markdown("<p style='text-align: center; color: #00FF00; font-size: 1.2rem; ma
 # -----------------------------------------------------------------
 # HYBRID COMPONENT: Native Voice Handler Input Fallback
 # -----------------------------------------------------------------
-# If the iframe audio fails, the user or evaluator can type keywords here directly.
 voice_input = st.text_input("⌨️ Emergency Manual Voice/Text Command Entry:", placeholder="Type 'scan', 'read', or 'sos' here...", label_visibility="visible")
 
 # -----------------------------------------------------------------
@@ -62,7 +61,6 @@ ACCESSIBLE_UI_HTML = f"""
         let objectModel = null; let isScanningObjects = false; let animationFrameId = null; let lastSpokenTime = 0;
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-        // Check if any native manual inputs were pushed from the Streamlit frame bar
         const nativeInput = "{voice_input}".toLowerCase().trim();
         
         async function initSystem() {{
@@ -74,13 +72,14 @@ ACCESSIBLE_UI_HTML = f"""
                         statusConsole.innerText = "System Fully Armed. Ready for input.";
                         speak("Smart Assist models loaded.");
                         
-                        // Execute native fallback routing if data exists
                         if (nativeInput.includes("scan") || nativeInput.includes("object")) {{ toggleObjectScanner(); }}
                         if (nativeInput.includes("read") || nativeInput.includes("text")) {{ runTextReading(); }}
                         if (nativeInput.includes("sos") || nativeInput.includes("help")) {{ triggerEmergencySOS(); }}
                     }}
                 }}, 500);
-            } catch (err) {{ statusConsole.innerText = "Error tracking cores."; }}
+            }} catch (err) {{ 
+                statusConsole.innerText = "Error tracking cores."; 
+            }}
         }}
 
         function triggerBeep(freq, dur) {{
@@ -92,7 +91,7 @@ ACCESSIBLE_UI_HTML = f"""
                 gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + dur);
                 osc.connect(gain); gain.connect(audioCtx.destination);
                 osc.start(); osc.stop(audioCtx.currentTime + dur);
-            } catch(e) {{}}
+            }} catch(e) {{}}
         }}
 
         function speak(text) {{
@@ -106,7 +105,7 @@ ACCESSIBLE_UI_HTML = f"""
         async function startCamera() {{
             try {{
                 video.srcObject = await navigator.mediaDevices.getUserMedia({{ video: {{ width: 640, height: 480, facingMode: "environment" }} }});
-            } catch (err) {{ statusConsole.innerText = "Camera Blocked. Check site permissions link."; }}
+            }} catch (err) {{ statusConsole.innerText = "Camera Blocked. Check site permissions link."; }}
         }}
 
         async function runObjectDetectionLoop() {{
@@ -149,19 +148,17 @@ ACCESSIBLE_UI_HTML = f"""
                 if (cleanText.length > 0) {{ statusConsole.innerText = `Read: "${{cleanText}}"`; speak(`The text reads: ${{cleanText}}`); }}
                 else {{ statusConsole.innerText = "No text parsed."; speak("No text detected."); }}
             } catch (err) {{ speak("Text processing failure."); }}
-        }
+        }}
 
-        // 🚀 SANDBOX ESCAPE BYPASS: Opens a clean top-level popup tab to handle speech audio processing securely
         function runVoiceAssistant() {{
             if (isScanningObjects) toggleObjectScanner();
             speak("Opening speech utility. Please state your choice.");
             
-            // Generate data-URI for a clean popup window completely independent of Streamlit's sandbox restrictions
             const popupContent = `
                 <html>
                 <body style='background:#000; color:#FF0; font-family:Arial; text-align:center; padding-top:50px;'>
                     <h2>🎙️ Smart Assist Voice Receiver</h2>
-                    <p style='color:#FFF; font-size:1.2rem;'>Say clear: "SCAN", "READ", or "SOS"...</p>
+                    <p style='color:#FFF; font-size:1.2rem;'>Say clearly: "SCAN", "READ", or "SOS"...</p>
                     <h3 id='status'>Listening...</h3>
                     <script>
                         const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -185,7 +182,6 @@ ACCESSIBLE_UI_HTML = f"""
             window.open(URL.createObjectURL(blob), 'VoiceAssistant', 'width=400,height=300');
         }
 
-        // Catch the processed voice command string sent back from the popup window
         window.addEventListener('message', function(event) {{
             if (event.data && event.data.voiceCommand) {{
                 const phrase = event.data.voiceCommand;
