@@ -1,15 +1,15 @@
-import streamlit as st
-import streamlit.components.v1 as components
+import os
+from flask import Flask, render_template_string
 
-st.set_page_config(page_title="Smart Assist AI", layout="centered")
+app = Flask(__name__)
 
-ACCESSIBLE_UI_HTML = """
+HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SMART ASSIST - Ultimate Accessibility Companion</title>
+    <title>SMART ASSIST - Complete Accessibility Companion</title>
     
     <script src="https://unpkg.com/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
     <script src="https://unpkg.com/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
@@ -65,9 +65,7 @@ ACCESSIBLE_UI_HTML = """
                         speak("Smart Assist models loaded.");
                     }
                 }, 500);
-            } catch (err) { 
-                statusConsole.innerText = "CRITICAL ERROR: AI Assets blocked."; 
-            }
+            } catch (err) { statusConsole.innerText = "AI Assets blocked."; }
         }
 
         function triggerBeep(freq, dur) {
@@ -95,9 +93,7 @@ ACCESSIBLE_UI_HTML = """
                 video.srcObject = await navigator.mediaDevices.getUserMedia({ 
                     video: { width: 640, height: 480, facingMode: "environment" } 
                 });
-            } catch (err) { 
-                statusConsole.innerText = "CAMERA BLOCKED: Check permissions."; 
-            }
+            } catch (err) { statusConsole.innerText = "CAMERA BLOCKED. Check permissions."; }
         }
 
         async function runObjectDetectionLoop() {
@@ -142,16 +138,9 @@ ACCESSIBLE_UI_HTML = """
             } catch (err) { speak("Text processing failure."); }
         }
 
-        // 🌟 REWRITTEN VOOSE ASSISTANT LOGIC WITH DYNAMIC STATUS LOGGING
         function runVoiceAssistant() {
             const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!Speech) { 
-                statusConsole.innerText = "VOICE ERROR: Browser compatibility block."; 
-                speak("Voice recognition unsupported."); 
-                return; 
-            }
-            
-            // Halt any scanning loops to clear microphone access lanes
+            if (!Speech) { statusConsole.innerText = "Voice engine unsupported on this browser."; speak("Voice recognition unsupported."); return; }
             if (isScanningObjects) toggleObjectScanner();
 
             const rec = new Speech();
@@ -159,17 +148,10 @@ ACCESSIBLE_UI_HTML = """
             rec.continuous = false;
             rec.interimResults = false;
 
-            statusConsole.innerText = "🎙️ Listening for command now... Speak clear."; 
+            statusConsole.innerText = "🎙️ Listening for command now... Speak clearly."; 
             speak("How can I help you?");
 
-            // Automatically start capturing audio AFTER the Text-To-Speech finishes talking
-            setTimeout(() => {
-                try {
-                    rec.start();
-                } catch(e) {
-                    statusConsole.innerText = "Voice system already active. Retry.";
-                }
-            }, 1200);
+            setTimeout(() => { try { rec.start(); } catch(e) {} }, 1200);
 
             rec.onstart = function() {
                 statusConsole.innerText = "🎙️ MICROPHONE LIVE: Say 'Scan', 'Read', or 'SOS'...";
@@ -178,35 +160,21 @@ ACCESSIBLE_UI_HTML = """
 
             rec.onresult = function(e) {
                 const phrase = e.results[0][0].transcript.toLowerCase().trim();
-                statusConsole.innerText = `🎯 PROCESSED VOICE: "${phrase.toUpperCase()}"`;
+                statusConsole.innerText = `🎯 HEARD: "${phrase.toUpperCase()}"`;
                 
-                // Flexible routing keyword conditions
-                if (phrase.includes("object") || phrase.includes("scan") || phrase.includes("see") || phrase.includes("camera")) {
-                    setTimeout(() => { toggleObjectScanner(); }, 800);
-                } else if (phrase.includes("read") || phrase.includes("text") || phrase.includes("book") || phrase.includes("word")) {
-                    setTimeout(() => { runTextReading(); }, 800);
-                } else if (phrase.includes("help") || phrase.includes("emergency") || phrase.includes("sos") || phrase.includes("danger")) {
-                    setTimeout(() => { triggerEmergencySOS(); }, 800);
+                if (phrase.includes("object") || phrase.includes("scan") || phrase.includes("see")) {
+                    setTimeout(() => { toggleObjectScanner(); }, 500);
+                } else if (phrase.includes("read") || phrase.includes("text") || phrase.includes("book")) {
+                    setTimeout(() => { runTextReading(); }, 500);
+                } else if (phrase.includes("help") || phrase.includes("emergency") || phrase.includes("sos")) {
+                    setTimeout(() => { triggerEmergencySOS(); }, 500);
                 } else {
-                    speak("Unknown command phrase. Try saying scan or read.");
+                    speak("Unknown command.");
                 }
             };
 
             rec.onerror = function(event) {
-                statusConsole.style.borderColor = "var(--accent-color)";
-                if (event.error === 'not-allowed') {
-                    statusConsole.innerText = "❌ VOICE ERROR: Microphone permission blocked by browser.";
-                    speak("Microphone permission denied.");
-                } else if (event.error === 'no-speech') {
-                    statusConsole.innerText = "❌ VOICE ERROR: No voice detected. Please try again.";
-                    speak("No audio heard.");
-                } else {
-                    statusConsole.innerText = `❌ VOICE ERROR: ${event.error}`;
-                }
-            };
-
-            rec.onend = function() {
-                statusConsole.style.borderColor = "var(--accent-color)";
+                statusConsole.innerText = `🎙️ Voice status feedback: ${event.error}`;
             };
         }
 
@@ -234,4 +202,10 @@ ACCESSIBLE_UI_HTML = """
 </html>
 """
 
-components.html(ACCESSIBLE_UI_HTML, height=720, scrolling=False)
+@app.route('/')
+def home():
+    return render_template_string(HTML_TEMPLATE)
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
