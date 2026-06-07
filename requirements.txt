@@ -3,3 +3,6 @@ numpy
 opencv-python-headless
 ultralytics
 gtts
+streamlit-webrtc
+av
+supervision
