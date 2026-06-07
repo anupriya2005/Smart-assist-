@@ -2,114 +2,156 @@ import streamlit as st
 import cv2
 import numpy as np
 from ultralytics import YOLO
-import pyttsx3
-import threading
+from gtts import gTTS
+import os
+import time
 
-# --- Page Layout Setup ---
-st.set_page_config(page_title="Smart Assist Dashboard", layout="wide", page_icon="👁️")
-st.title("👁️ Smart Assist: Environmental Awareness Portal")
-st.write("Development Stage: Local Hardware Prototype Interface")
+# Set up clean web page configuration
+st.set_page_config(
+    page_title="Smart Assist for Visually Impaired",
+    page_icon="👁️",
+    layout="wide"
+)
 
-# --- Initialize Text-to-Speech Engine ---
+# -------------------------------------------------------------------------
+# RESOURCE LAYERS: Cache the YOLO model initialization to save server memory
+# -------------------------------------------------------------------------
 @st.cache_resource
-def init_tts():
-    engine = pyttsx3.init()
-    engine.setProperty('rate', 160)  # Moderate speaking speed
-    return engine
+def load_yolo_model():
+    try:
+        # Pulls standard ultra-lightweight YOLOv8 nano weights for high speed
+        model = YOLO("yolov8n.pt")
+        return model
+    except Exception as e:
+        st.error(f"Error loading computer vision weights: {e}")
+        return None
 
-tts_engine = init_tts()
+model = load_yolo_model()
 
-def speak_alert(text):
-    """Runs audio alerts in a background thread to prevent the video feed from lagging."""
-    def target():
+# -------------------------------------------------------------------------
+# ALGORITHMIC MODULE: Web-Safe Asynchronous Audio Generation Pipeline
+# -------------------------------------------------------------------------
+def speak_text_in_browser(text_payload):
+    """
+    Converts descriptive text strings into digital MP3 payloads 
+    and pipes them natively to the user's browser speaker daemon.
+    """
+    if text_payload:
         try:
-            tts_engine.say(text)
-            tts_engine.runAndWait()
-        except:
-            pass
-    threading.Thread(target=target, daemon=True).start()
+            # Convert text token into an structural English voice object
+            tts = gTTS(text=text_payload, lang='en', tld='com')
+            audio_path = "temp_alert.mp3"
+            tts.save(audio_path)
+            
+            # Inject an invisible HTML5 autoplay widget directly into the web layout
+            st.audio(audio_path, format="audio/mp3", autoplay=True)
+        except Exception as e:
+            st.sidebar.error(f"Audio Routing Exception: {e}")
 
-# --- Load YOLOv8 Model ---
-@st.cache_resource
-def load_model():
-    return YOLO("yolov8n.pt")
-
-model = load_model()
-
-# Core obstacle classes for assistive navigation
-FOCUS_CLASSES = ['person', 'stairs', 'door', 'table', 'chair', 'vehicle', 'pothole']
-
-# --- UI Controls Sidebar ---
-st.sidebar.header("🔧 System Calibration")
-confidence_threshold = st.sidebar.slider("Detection Confidence", 0.1, 1.0, 0.25)
-
-st.sidebar.markdown("""
-### 💡 Viva Presentation Tip
-* **CLAHE Enhancement:** Applied dynamically below a mean brightness of 80 to ensure spatial clarity in low-light environments.
-* **Proximity Metric:** Bounding box pixel density percentage relative to the canvas calculation determines hazard severity.
+# -------------------------------------------------------------------------
+# FRONTEND INTERFACE DESIGN: Clean, High-Contrast Accessible Dashboard
+# -------------------------------------------------------------------------
+st.title("👁️ Smart Assist for Visually Impaired")
+st.markdown("""
+**Design Thinking Prototype Framework** — Transpiling dynamic spatial geometry 
+fields into real-time, non-blocking auditory orientation signals.
 """)
 
-# Main toggle checkbox to kick off webcam capture
-run_engine = st.checkbox("Launch Smart Assist Webcam Engine")
-FRAME_WINDOW = st.image([])  # Streamlit placeholder container for the video feed
+# Create operational dashboard side-by-side columns
+col1, col2 = st.columns([2, 1])
 
-# --- Core Processing Matrix ---
-if run_engine:
-    cap = cv2.VideoCapture(0)  # Access local laptop webcam
+with col1:
+    st.subheader("📷 Visual Capture Stream")
+    # Streamlit file uploader to mimic real-time camera matrix snapshot testing
+    uploaded_file = st.file_uploader(
+        "Upload environmental frame snapshot for vision model evaluation...", 
+        type=["jpg", "jpeg", "png"]
+    )
     
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            st.error("Hardware Alert: Webcam stream disconnected.")
-            break
-            
-        # 1. Low Light Processing Module (CLAHE)
-        if np.mean(frame) < 80:
-            lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
-            l, a, b = cv2.split(lab)
-            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-            l = clahe.apply(l)
-            frame = cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
+with col2:
+    st.subheader("🔊 Auditory Notification Log")
+    status_box = st.empty()
+    alert_box = st.empty()
 
-        # 2. Machine Learning Inference Pipeline
-        results = model(frame, conf=confidence_threshold, verbose=False)[0]
-        h, w = frame.shape[:2]
+# -------------------------------------------------------------------------
+# CORE APPLICATION EXECUTION PIPELINE
+# -------------------------------------------------------------------------
+if uploaded_file is not None:
+    # Convert uploaded file byte array into standard OpenCV matrix format
+    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    opencv_frame = cv2.imdecode(file_bytes, 1)
+    
+    if model is not None:
+        status_box.info("🧠 Model running inference on frame layout...")
         
-        highest_hazard = None
-        max_proximity = 0
+        # Execute feed-forward convolutional pass on the frame matrix
+        results = model(opencv_frame)
         
-        for r in results.boxes:
-            c_id = int(r.cls[0])
-            name = model.names[c_id].lower()
-            
-            if any(fc in name for fc in FOCUS_CLASSES):
-                x1, y1, x2, y2 = r.xyxy[0]
+        detected_labels = []
+        critical_hazard_found = False
+        alert_message = ""
+        
+        # Parse the mathematical bounding boxes generated by YOLO
+        for result in results:
+            for box in result.boxes:
+                # Extract classification label string
+                class_id = int(box.cls[0])
+                label = model.names[class_id]
+                confidence = float(box.conf[0])
                 
-                # Proximity math: (Box Area / Total Image Area) * 100
-                proximity_score = (((x2 - x1) * (y2 - y1)) / (w * h)) * 100
+                # Extract coordinates to calculate proximity fields
+                xyxy = box.xyxy[0].tolist()
+                box_width = xyxy[2] - xyxy[0] # Pixel width metric
                 
-                # Determine box color layout
-                if proximity_score > 25:
-                    color = (0, 0, 255)  # Red warning boundary
-                    if proximity_score > max_proximity:
-                        max_proximity = proximity_score
-                        highest_hazard = name
+                # Strategic heuristic: Large bounding box dimensions flag high proximity hazards
+                if label in ["chair", "couch", "bed", "table", "person"] and box_width > 200:
+                    critical_hazard_found = True
+                    alert_message = f"Immediate warning! Large obstacle {label} ahead."
+                    # Draw a high-contrast danger outline overlay on frame matrix
+                    cv2.rectangle(opencv_frame, (int(xyxy[0]), (int(xyxy[1]))), (int(xyxy[2]), (int(xyxy[3]))), (0, 0, 255), 4)
+                    cv2.putText(opencv_frame, f"CRITICAL: {label.upper()}", (int(xyxy[0]), int(xyxy[1]) - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
                 else:
-                    color = (0, 255, 0)  # Safe green boundary
-                    
-                # Render visual boundaries directly onto frame matrix
-                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
-                cv2.putText(frame, f"{name} {proximity_score:.1f}%", (int(x1), int(y1) - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                    detected_labels.append(label)
+                    # Draw a standard operational safety tracking outline
+                    cv2.rectangle(opencv_frame, (int(xyxy[0]), (int(xyxy[1]))), (int(xyxy[2]), (int(xyxy[3]))), (0, 255, 0), 2)
+                    cv2.putText(opencv_frame, f"{label} {confidence:.2f}", (int(xyxy[0]), int(xyxy[1]) - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+        # Convert back to RGB format for clean web canvas rendering
+        rgb_preview = cv2.cvtColor(opencv_frame, cv2.COLOR_BGR2RGB)
+        col1.image(rgb_preview, caption="Computer Vision Processing Layer Output", use_container_width=True)
         
-        # 3. Fire Voice Warnings Safely
-        if highest_hazard:
-            speak_alert(f"Warning. {highest_hazard} ahead.")
+        # -----------------------------------------------------------------
+        # PRIORITY AUDIO LOGIC ROUTER
+        # -----------------------------------------------------------------
+        if critical_hazard_found:
+            status_box.error("🚨 CRITICAL STATE IDENTIFIED")
+            alert_box.metric(label="System Priority State", value="LEVEL 1: URGENT")
+            st.error(f"System Audio Output: '{alert_message}'")
             
-        # 4. Refresh Web UI Viewport
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        FRAME_WINDOW.image(frame_rgb)
-        
-    cap.release()
+            # Instantly pipe the critical hazard alert out of browser speakers
+            speak_text_in_browser(alert_message)
+            
+        elif len(detected_labels) > 0:
+            status_box.success("✅ Ambient Context Extracted")
+            alert_box.metric(label="System Priority State", value="LEVEL 3: SITUATIONAL")
+            
+            # Format clean contextual description of safe background assets
+            unique_items = list(set(detected_labels))
+            descriptive_payload = f"Path contains {', '.join(unique_items)}."
+            st.success(f"System Audio Output: '{descriptive_payload}'")
+            
+            # Speak background situational layout message
+            speak_text_in_browser(descriptive_payload)
+        else:
+            status_box.warning("Clear spatial path detected ahead.")
+            alert_box.metric(label="System Priority State", value="IDLE")
+            speak_text_in_browser("Clear path ahead.")
+    else:
+        st.error("Model state is unavailable. Check system runtime allocations.")
 else:
-    st.info("System Standby. Toggle the engine checkbox to boot up the vision tracking matrix.")
+    # Diagnostic fallback view when no image matrix is active in memory
+    col1.info("💡 Waiting for input framework snapshot to evaluate system pathways.")
+    with col2:
+        alert_box.metric(label="System Priority State", value="OFFLINE")
