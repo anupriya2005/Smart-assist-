@@ -1,1 +1,1 @@
-flask
+streamlit
