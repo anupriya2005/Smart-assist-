@@ -1,8 +1,7 @@
-streamlit
-numpy
+flask
+flask-cors
 opencv-python-headless
 ultralytics
-gtts
-streamlit-webrtc
-av
-supervision
+easyocr
+gTTS
+numpy
