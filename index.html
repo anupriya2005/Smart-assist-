@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SMART ASSIST - AI Accessibility Companion</title>
+    <style>
+        /* High Contrast Theme for Low Vision Users */
+        :root {
+            --bg-color: #000000;
+            --text-color: #FFFFFF;
+            --accent-color: #FFFF00; /* High visibility yellow */
+            --danger-color: #FF3333;
+            --focus-outline: #00FF00;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+
+        header {
+            border-bottom: 5px solid var(--accent-color);
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            font-size: 3rem;
+            color: var(--accent-color);
+            margin: 0;
+        }
+
+        p.subtitle {
+            font-size: 1.5rem;
+            margin: 5px 0 0 0;
+        }
+
+        /* Video Streaming Viewport */
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            margin: 0 auto 30px auto;
+            border: 4px solid var(--text-color);
+        }
+
+        video {
+            width: 100%;
+            height: auto;
+            display: block;
+            transform: scaleX(-1); /* Mirror view for intuition */
+        }
+
+        /* Large Accessible Control Matrix */
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 25px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .btn {
+            background-color: #222;
+            color: var(--text-color);
+            border: 4px solid var(--accent-color);
+            padding: 35px 20px;
+            font-size: 1.8rem;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 12px;
+            transition: all 0.2s ease;
+        }
+
+        /* Critical Keyboard Navigation States */
+        .btn:focus, .btn:hover {
+            background-color: var(--accent-color);
+            color: #000;
+            outline: 5px solid var(--focus-outline);
+        }
+
+        .btn-sos {
+            border-color: var(--danger-color);
+            color: var(--danger-color);
+        }
+        .btn-sos:focus, .btn-sos:hover {
+            background-color: var(--danger-color);
+            color: #000;
+        }
+
+        /* Status Output Board */
+        #status-display {
+            margin-top: 30px;
+            padding: 20px;
+            border: 2px dashed var(--accent-color);
+            font-size: 1.6rem;
+            min-height: 50px;
+            background-color: #111;
+        }
+
+        .hidden-canvas {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>SMART ASSIST</h1>
+        <p class="subtitle">AI Companion for Independent Mobility</p>
+        <p style="color: var(--focus-outline)">Use Tab to navigate. Press Space/Enter to select.</p>
+    </header>
+
+    <div class="video-container">
+        <video id="webcam" autoplay playsinline></video>
+    </div>
+
+    <canvas id="capture-canvas" class="hidden-canvas" width="640" height="480"></canvas>
+
+    <main class="grid-container">
+        <button class="btn" id="btn-voice" aria-label="Voice Command Assistant. Press V shortcut.">🎙️ Voice Assistant (V)</button>
+        <button class="btn" id="btn-object" aria-label="Detect Obstacles and Objects. Press O shortcut.">📷 Detect Objects (O)</button>
+        <button class="btn" id="btn-text" aria-label="Read Text and Signboards. Press T shortcut.">📖 Read Text (T)</button>
+        <button class="btn btn-sos" id="btn-sos" aria-label="Trigger Emergency SOS. Press S shortcut.">🚨 Emergency SOS (S)</button>
+    </main>
+
+    <section id="status-display" role="status" aria-live="assertive">
+        System initialized. Ready for instructions.
+    </section>
+
+    <audio id="audio-player" autocomplete="off"></audio>
+
+    <script>
+        const BACKEND_URL = "http://127.0.0.1:5000";
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('capture-canvas');
+        const statusDisplay = document.getElementById('status-display');
+        const audioPlayer = document.getElementById('audio-player');
+
+        // 1. Fire up Web Camera Connection
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
+                .then(function(stream) {
+                    video.srcObject = stream;
+                })
+                .catch(function(error) {
+                    updateStatus("Camera access denied. Please verify input hardware.");
+                });
+        }
+
+        // 2. Local Accessibility Text-to-Speech Engine
+        function localSpeak(text) {
+            window.speechSynthesis.cancel(); // Halt ongoing speech structures
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 1.0;
+            window.speechSynthesis.speak(utterance);
+        }
+
+        function updateStatus(msg) {
+            statusDisplay.innerText = msg;
+            localSpeak(msg);
+        }
+
+        // Play server-synthesized high-fidelity MP3s
+        function playServerAudio(audioUrl) {
+            audioPlayer.src = BACKEND_URL + audioUrl;
+            audioPlayer.play().catch(err => {
+                // Fallback to local browser TTS engine if asset stream encounters blocks
+                localSpeak(statusDisplay.innerText);
+            });
+        }
+
+        // 3. Extract Base64 Image Matrix out of active HTML5 Video Stream
+        function captureFrame() {
+            const context = canvas.getContext('2d');
+            // Counteract mirrored video element transformation matrix
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            return canvas.toDataURL('image/jpeg', 0.8);
+        }
+
+        // 4. Processing Pipelines
+        async function runObjectDetection() {
+            updateStatus("Scanning environment... please hold steady.");
+            const frameData = captureFrame();
+            
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/detect-objects`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: frameData })
+                });
+                const result = await response.json();
+                statusDisplay.innerText = result.text;
+                playServerAudio(result.audio_url);
+            } catch (err) {
+                updateStatus("Communication failure during object detection mapping.");
+            }
+        }
+
+        async function runTextOCR() {
+            updateStatus("Analyzing textual surface details...");
+            const frameData = captureFrame();
+            
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/read-text`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: frameData })
+                });
+                const result = await response.json();
+                statusDisplay.innerText = r.text;
+                playServerAudio(result.audio_url);
+            } catch (err) {
+                updateStatus("Communication failure during optical character reading.");
+            }
+        }
+
+        async function triggerSOS() {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/sos`, { method: 'POST' });
+                const result = await response.json();
+                statusDisplay.innerText = result.text;
+                playServerAudio(result.audio_url);
+            } catch (err) {
+                updateStatus("Emergency processing offline. Please make direct contact.");
+            }
+        }
+
+        // 5. In-browser Voice Assistant Router
+        function runVoiceAssistant() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                updateStatus("Voice Recognition API is missing on this browser engine.");
+                return;
+            }
+
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'en-US';
+            recognition.interimResults = false;
+
+            updateStatus("Listening for voice command now.");
+            recognition.start();
+
+            recognition.onresult = function(event) {
+                const command = event.results[0][0].transcript.toLowerCase();
+                updateStatus(`Received command: ${command}`);
+                
+                setTimeout(() => {
+                    if (command.includes("object") || command.includes("front") || command.includes("see")) {
+                        runObjectDetection();
+                    } else if (command.includes("text") || command.includes("read") || command.includes("sign")) {
+                        runTextOCR();
+                    } else if (command.includes("help") || command.includes("emergency") || command.includes("sos")) {
+                        triggerSOS();
+                    } else {
+                        updateStatus("Command unrecognized. Please say: object, read text, or emergency.");
+                    }
+                }, 1200);
+            };
+
+            recognition.onerror = function() {
+                updateStatus("Voice capture processing timeout encountered.");
+            };
+        }
+
+        // 6. UI Interaction & Navigation Bindings
+        document.getElementById('btn-voice').addEventListener('click', runVoiceAssistant);
+        document.getElementById('btn-object').addEventListener('click', runObjectDetection);
+        document.getElementById('btn-text').addEventListener('click', runTextOCR);
+        document.getElementById('btn-sos').addEventListener('click', triggerSOS);
+
+        // Vocalize focused element changes during tab navigation
+        const components = document.querySelectorAll('.btn');
+        components.forEach(element => {
+            element.addEventListener('focus', () => {
+                localSpeak(element.getAttribute('aria-label'));
+            });
+        });
+
+        // Global hotkey listener for lightning access
+        window.addEventListener('keydown', (e) => {
+            const key = e.key.toLowerCase();
+            if (key === 'v') runVoiceAssistant();
+            if (key === 'o') runObjectDetection();
+            if (key === 't') runTextOCR();
+            if (key === 's') triggerSOS();
+        });
+    </script>
+</body>
+</html>
