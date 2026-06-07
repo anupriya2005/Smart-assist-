@@ -1,7 +1,6 @@
-flask
-flask-cors
-opencv-python-headless
+streamlit
 ultralytics
 easyocr
 gTTS
+opencv-python-headless
 numpy
